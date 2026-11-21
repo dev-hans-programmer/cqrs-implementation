@@ -1,0 +1,37 @@
+services:
+  order-service:
+    build:
+      context: .
+      args:
+        APP_MODULE: services.order_service.app.main
+    ports: ["8001:8000"]
+
+  inventory-service:
+    build:
+      context: .
+      args:
+        APP_MODULE: services.inventory_service.app.main
+    ports: ["8002:8000"]
+
+  payment-service:
+    build:
+      context: .
+      args:
+        APP_MODULE: services.payment_service.app.main
+    ports: ["8003:8000"]
+
+  saga-orchestrator:
+    build:
+      context: .
+      args:
+        APP_MODULE: services.saga_orchestrator.app.main
+    environment:
+      ORDER_SERVICE_URL: http://order-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+    ports: ["8000:8000"]
+    depends_on:
+      - order-service
+      - inventory-service
+      - payment-service
+
