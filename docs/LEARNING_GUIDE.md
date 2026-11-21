@@ -283,22 +283,23 @@ system they could be two schemas or entirely different databases.
 
 ### 4.6 Understand projection timing
 
-The handler currently performs these operations synchronously:
+In the default in-memory mode, the handler performs these operations synchronously:
 
 ```text
 save aggregate -> apply domain event to projection -> return response
 ```
 
-This makes the example deterministic: a query immediately sees the command result. With a broker,
-the typical flow becomes:
+This makes unit tests deterministic: a query immediately sees the command result. Docker mode
+uses the production-learning flow:
 
 ```text
 save aggregate + outbox event -> return -> broker -> projection consumer -> update read store
 ```
 
-The second design is eventually consistent. Immediately after a successful command, the query
-side may briefly return old data. CQRS itself does not require asynchronous events; this is an
-architectural choice.
+The Docker design is eventually consistent. Immediately after a successful command, the query
+side may briefly return old data. Its PostgreSQL outbox, RabbitMQ delivery, transactional inbox,
+and projection consumer are documented in `docs/production/`. CQRS itself does not require
+asynchronous events; this remains an architectural choice.
 
 ## 5. Second pass: compare the other CQRS services
 
@@ -555,8 +556,8 @@ curl -i http://localhost:8000/health -H 'X-Correlation-ID: learning-trace-1'
 - inventory holds a lock across availability checking and reservation writing;
 - repositories use locks so concurrent async requests cannot interleave critical writes.
 
-These are educational in-memory equivalents. A database implementation would use transactions,
-unique constraints, compare-and-swap updates, or row locks.
+These are the educational in-memory equivalents. Docker mode demonstrates the corresponding
+PostgreSQL transactions, unique constraints, optimistic versions, and row locks.
 
 ## 8. Learn through the tests
 

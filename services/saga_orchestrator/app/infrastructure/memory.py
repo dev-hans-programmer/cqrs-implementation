@@ -1,7 +1,7 @@
 import asyncio
 
 from ..domain.events import SagaChanged
-from ..domain.models import CheckoutSaga
+from ..domain.models import CheckoutSaga, SagaStatus
 
 
 class InMemorySagaWriteRepository:
@@ -18,6 +18,13 @@ class InMemorySagaWriteRepository:
         async with self._lock:
             self._sagas[saga.id] = saga
             self._idempotency[saga.idempotency_key] = saga.id
+
+    async def list_recoverable(self, stale_after_seconds: float) -> list[CheckoutSaga]:
+        return [
+            saga
+            for saga in self._sagas.values()
+            if saga.status in {SagaStatus.RUNNING, SagaStatus.COMPENSATING}
+        ]
 
 
 class InMemorySagaReadModel:

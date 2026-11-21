@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: cqrs-services
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - order-service:8000
+          - inventory-service:8000
+          - payment-service:8000
+          - saga-orchestrator:8000
+

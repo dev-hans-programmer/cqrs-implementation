@@ -1,24 +1,136 @@
+x-platform-environment: &platform-environment
+  PERSISTENCE_BACKEND: postgres
+  RABBITMQ_URL: amqp://app:app@rabbitmq:5672/
+  REDIS_URL: redis://redis:6379/0
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_CAPACITY: "100"
+  RATE_LIMIT_REFILL_PER_SECOND: "20"
+  OTEL_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+
+x-application-dependencies: &application-dependencies
+  rabbitmq:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
 services:
+  order-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    volumes: ["order-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d orders"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  inventory-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventory
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    volumes: ["inventory-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d inventory"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  payment-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    volumes: ["payment-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d payments"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  saga-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sagas
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    volumes: ["saga-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d sagas"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: app
+      RABBITMQ_DEFAULT_PASS: app
+    ports: ["15672:15672"]
+    volumes: ["rabbit-data:/var/lib/rabbitmq"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   order-service:
     build:
       context: .
       args:
         APP_MODULE: services.order_service.app.main
+    environment:
+      <<: *platform-environment
+      DATABASE_URL: postgresql://app:app@order-db:5432/orders
     ports: ["8001:8000"]
+    depends_on:
+      <<: *application-dependencies
+      order-db:
+        condition: service_healthy
 
   inventory-service:
     build:
       context: .
       args:
         APP_MODULE: services.inventory_service.app.main
+    environment:
+      <<: *platform-environment
+      DATABASE_URL: postgresql://app:app@inventory-db:5432/inventory
     ports: ["8002:8000"]
+    depends_on:
+      <<: *application-dependencies
+      inventory-db:
+        condition: service_healthy
 
   payment-service:
     build:
       context: .
       args:
         APP_MODULE: services.payment_service.app.main
+    environment:
+      <<: *platform-environment
+      DATABASE_URL: postgresql://app:app@payment-db:5432/payments
     ports: ["8003:8000"]
+    depends_on:
+      <<: *application-dependencies
+      payment-db:
+        condition: service_healthy
 
   saga-orchestrator:
     build:
@@ -26,12 +138,46 @@ services:
       args:
         APP_MODULE: services.saga_orchestrator.app.main
     environment:
+      <<: *platform-environment
+      DATABASE_URL: postgresql://app:app@saga-db:5432/sagas
       ORDER_SERVICE_URL: http://order-service:8000
       INVENTORY_SERVICE_URL: http://inventory-service:8000
       PAYMENT_SERVICE_URL: http://payment-service:8000
     ports: ["8000:8000"]
     depends_on:
-      - order-service
-      - inventory-service
-      - payment-service
+      <<: *application-dependencies
+      saga-db:
+        condition: service_healthy
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+
+  otel-collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on: ["jaeger"]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    ports: ["16686:16686"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+volumes:
+  order-data:
+  inventory-data:
+  payment-data:
+  saga-data:
+  rabbit-data:
+  redis-data:
 

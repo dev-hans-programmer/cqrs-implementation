@@ -45,6 +45,7 @@ class CheckoutSaga:
     customer_id: str
     items: tuple[CheckoutItem, ...]
     amount: Decimal
+    payment_method_token: str
     status: SagaStatus
     steps: tuple[SagaStep, ...]
     failure_reason: str | None = None
@@ -57,6 +58,7 @@ class CheckoutSaga:
         customer_id: str,
         items: tuple[CheckoutItem, ...],
         amount: Decimal,
+        payment_method_token: str,
     ) -> CheckoutSaga:
         return cls(
             id=saga_id,
@@ -67,6 +69,7 @@ class CheckoutSaga:
             customer_id=customer_id,
             items=items,
             amount=amount,
+            payment_method_token=payment_method_token,
             status=SagaStatus.RUNNING,
             steps=(),
         )

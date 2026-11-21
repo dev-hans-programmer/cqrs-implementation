@@ -22,6 +22,9 @@ class InMemoryInventoryWriteRepository:
         self._idempotency: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
+    async def initialize(self) -> None:
+        return None
+
     async def reserve(
         self,
         reservation_id: str,

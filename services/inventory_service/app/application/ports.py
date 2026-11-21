@@ -5,6 +5,8 @@ from ..domain.models import Reservation, ReservationItem, StockItem
 
 
 class InventoryWriteRepository(Protocol):
+    async def initialize(self) -> None: ...
+
     async def reserve(
         self,
         reservation_id: str,

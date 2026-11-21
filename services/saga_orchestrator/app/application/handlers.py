@@ -41,25 +41,40 @@ class CheckoutSagaHandler:
             command.customer_id,
             command.items,
             command.amount,
+            command.payment_method_token,
         )
         await self._persist(saga)
+        return await self._continue_forward(saga)
 
-        completed: list[str] = []
+    async def resume(self, saga: CheckoutSaga) -> CheckoutSaga:
+        """Resume after a crash; downstream idempotency makes ambiguous calls safe to replay."""
+
+        if saga.status == SagaStatus.RUNNING:
+            return await self._continue_forward(saga)
+        if saga.status == SagaStatus.COMPENSATING:
+            return await self._compensate(saga, self._completed_forward_steps(saga))
+        return saga
+
+    async def _continue_forward(self, saga: CheckoutSaga) -> CheckoutSaga:
+        completed = self._completed_forward_steps(saga)
+        completed_set = set(completed)
         try:
-            saga = await self._forward(saga, "create_order", self._gateway.create_order)
-            completed.append("create_order")
-            saga = await self._forward(saga, "reserve_inventory", self._gateway.reserve_inventory)
-            completed.append("reserve_inventory")
-            saga = await self._forward(
-                saga,
-                "authorize_payment",
-                lambda current: self._gateway.authorize_payment(
-                    current, command.payment_method_token
+            forward_actions: list[tuple[str, Callable[[CheckoutSaga], Awaitable[None]]]] = [
+                ("create_order", self._gateway.create_order),
+                ("reserve_inventory", self._gateway.reserve_inventory),
+                (
+                    "authorize_payment",
+                    lambda current: self._gateway.authorize_payment(
+                        current, current.payment_method_token
+                    ),
                 ),
-            )
-            completed.append("authorize_payment")
-            saga = await self._forward(saga, "confirm_order", self._gateway.confirm_order)
-            completed.append("confirm_order")
+                ("confirm_order", self._gateway.confirm_order),
+            ]
+            for name, action in forward_actions:
+                if name in completed_set:
+                    continue
+                saga = await self._forward(saga, name, action)
+                completed.append(name)
             saga = saga.record("checkout", StepStatus.SUCCEEDED, saga_status=SagaStatus.COMPLETED)
             await self._persist(saga)
             return saga
@@ -73,6 +88,20 @@ class CheckoutSagaHandler:
             )
             await self._persist(saga)
             return await self._compensate(saga, completed)
+
+    @staticmethod
+    def _completed_forward_steps(saga: CheckoutSaga) -> list[str]:
+        forward_names = {
+            "create_order",
+            "reserve_inventory",
+            "authorize_payment",
+            "confirm_order",
+        }
+        return [
+            step.name
+            for step in saga.steps
+            if step.name in forward_names and step.status == StepStatus.SUCCEEDED
+        ]
 
     async def _forward(
         self,
@@ -91,12 +120,17 @@ class CheckoutSagaHandler:
             "reserve_inventory": ("release_inventory", self._gateway.release_inventory),
             "create_order": ("cancel_order", self._gateway.cancel_order),
         }
+        already_compensated = {
+            step.name for step in saga.steps if step.status == StepStatus.COMPENSATED
+        }
         compensation_failed = False
         for forward_step in reversed(completed):
             compensation = actions.get(forward_step)
             if compensation is None:
                 continue
             name, action = compensation
+            if name in already_compensated:
+                continue
             try:
                 await action(saga)
                 saga = saga.record(name, StepStatus.COMPENSATED)

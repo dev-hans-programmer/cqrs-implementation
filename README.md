@@ -7,12 +7,16 @@ This repository is a small, executable checkout system built to make two pattern
 - **Saga:** one local transaction cannot span several services, so the checkout orchestrator
   runs local transactions and invokes compensating actions when a later step fails.
 
-The storage is deliberately in memory. The service boundaries, application ports, idempotency,
-state transitions, HTTP contracts, and failure handling are shaped so each infrastructure piece
-can later be replaced.
+The repository has two infrastructure modes. The default in-memory mode keeps unit tests fast.
+Docker Compose runs the production-learning mode with service-owned PostgreSQL databases,
+RabbitMQ, Redis, asynchronous projections, durable Saga recovery, tracing, and metrics.
 
 > New to these patterns? Follow the step-by-step [Learning Guide](docs/LEARNING_GUIDE.md).
 > It gives you a reading order, traces real requests through the code, and includes exercises.
+
+> Studying distributed production patterns? Use the
+> [Production Evolution Guide](docs/production/README.md), which documents each infrastructure
+> capability and its failure semantics.
 
 ## Architecture
 
@@ -39,7 +43,7 @@ services/<service>/app/
 ├── api/              # HTTP schemas and thin route adapters
 ├── application/      # commands, queries, handlers, and ports
 ├── domain/           # aggregates, value objects, events, invariants
-├── infrastructure/   # in-memory repositories or HTTP adapters
+├── infrastructure/   # memory/PostgreSQL repositories, workers, or HTTP adapters
 └── main.py            # composition root
 ```
 
@@ -127,9 +131,9 @@ An order query does not load the aggregate:
 GET route -> GetOrder query -> query handler -> read projection
 ```
 
-The projection update is synchronous for a deterministic teaching example. With an asynchronous
-broker the read side becomes **eventually consistent**: a successful command can briefly precede
-the updated query response.
+In memory mode, projection updates are synchronous for deterministic tests. Docker mode uses the
+outbox, RabbitMQ, inbox, and asynchronous PostgreSQL projections, so the read side is
+**eventually consistent**: a successful command can briefly precede the updated query response.
 
 ## Verification
 

@@ -1,0 +1,18 @@
+# Use with a unique project name to run the complete stack without publishing host ports:
+# docker compose -p cqrsverify -f docker-compose.yml -f docker-compose.integration.yml up -d
+services:
+  order-service:
+    ports: !override []
+  inventory-service:
+    ports: !override []
+  payment-service:
+    ports: !override []
+  saga-orchestrator:
+    ports: !override []
+  rabbitmq:
+    ports: !override []
+  jaeger:
+    ports: !override []
+  prometheus:
+    ports: !override []
+

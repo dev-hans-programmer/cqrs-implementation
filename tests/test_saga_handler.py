@@ -4,7 +4,12 @@ import pytest
 
 from services.saga_orchestrator.app.application.commands import StartCheckout
 from services.saga_orchestrator.app.application.handlers import CheckoutSagaHandler
-from services.saga_orchestrator.app.domain.models import CheckoutItem, CheckoutSaga, SagaStatus
+from services.saga_orchestrator.app.domain.models import (
+    CheckoutItem,
+    CheckoutSaga,
+    SagaStatus,
+    StepStatus,
+)
 from services.saga_orchestrator.app.infrastructure.memory import (
     InMemorySagaReadModel,
     InMemorySagaWriteRepository,
@@ -98,3 +103,24 @@ async def test_idempotency_key_does_not_run_saga_twice() -> None:
 
     assert replay.id == first.id
     assert len(gateway.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_recovery_resumes_after_the_last_durable_step() -> None:
+    gateway = RecordingGateway()
+    write_repo = InMemorySagaWriteRepository()
+    handler = CheckoutSagaHandler(write_repo, InMemorySagaReadModel(), gateway)
+    interrupted = CheckoutSaga.start(
+        "saga-recovery-1",
+        "recovery-key",
+        "customer-1",
+        (CheckoutItem("LAPTOP", 1),),
+        Decimal("100.00"),
+        "tok_ok",
+    ).record("create_order", StepStatus.SUCCEEDED)
+    await write_repo.save(interrupted)
+
+    recovered = await handler.resume(interrupted)
+
+    assert recovered.status == SagaStatus.COMPLETED
+    assert gateway.calls == ["reserve_inventory", "authorize_payment", "confirm_order"]
